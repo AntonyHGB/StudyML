@@ -19,26 +19,32 @@ DISPARITY_THRESHOLD = 0.15
 
 console = Console()
 
+# Resolve a raiz do projeto para reutilizar caminhos.
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
+# Retorna o caminho do dataset usado na análise de fairness.
 def _dataset_path() -> Path:
     return _project_root() / "data" / DATASET_FILE
 
+# Retorna o diretório de tracking local do MLflow.
 def _mlruns_dir() -> Path:
     return _project_root() / "mlruns"
 
+# Carrega o dataset e falha com mensagem clara se setup ainda não foi executado.
 def _load_dataset() -> pd.DataFrame:
     path = _dataset_path()
     if not path.exists():
         raise RuntimeError("Dataset não encontrado. Execute 'python cli.py setup' primeiro.")
     return pd.read_csv(path)
 
+# Configura conexão com MLflow local no mesmo experimento da auditoria.
 def _configure_mlflow() -> None:
     tracking_uri = _mlruns_dir().resolve().as_uri()
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
+# Treina modelo de referência e devolve conjunto de teste com rótulo real e predito.
 def _train_reference_model(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     x = df[FEATURE_COLUMNS]
     y = df["target"]
@@ -57,6 +63,7 @@ def _train_reference_model(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
 
     return x_test, y_test.rename("y_true"), y_pred.rename("y_pred")
 
+# Mapeia idade num grupo categórico para auditoria por faixa etária.
 def _age_group(age: float) -> str:
     if age <= 40:
         return "jovem (<=40)"
@@ -64,6 +71,7 @@ def _age_group(age: float) -> str:
         return "adulto (41-60)"
     return "idoso (>60)"
 
+# Calcula recall manualmente por grupo para transparência de fairness.
 def _manual_group_recall(df: pd.DataFrame, group_col: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for group_name, group_df in df.groupby(group_col):
@@ -85,6 +93,7 @@ def _manual_group_recall(df: pd.DataFrame, group_col: str) -> list[dict[str, Any
         )
     return out
 
+# Executa auditoria de fairness por idade e sexo usando disparidade de recall.
 def run_fairness_analysis() -> dict[str, Any]:
     _configure_mlflow()
     df = _load_dataset()
@@ -125,6 +134,7 @@ def run_fairness_analysis() -> dict[str, Any]:
 
     console.print(table)
 
+    # Aplica gate de governança: reprova quando disparidade excede o limite.
     if gate_failed:
         console.print(
             Panel.fit(
