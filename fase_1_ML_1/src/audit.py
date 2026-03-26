@@ -24,6 +24,7 @@ FEATURE_COLUMNS = ["age", "sex", "cp", "trestbps", "chol", "thalach"]
 console = Console()
 
 
+# Estrutura simples para transportar métricas e identificação de cada treino.
 @dataclass
 class ModelResult:
     name: str
@@ -34,22 +35,27 @@ class ModelResult:
     precision: float
 
 
+# Resolve a raiz do projeto a partir do arquivo atual.
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+# Centraliza o caminho do diretório de dados.
 def _data_dir() -> Path:
     return _project_root() / "data"
 
 
+# Retorna o caminho completo do CSV utilizado no pipeline.
 def _dataset_path() -> Path:
     return _data_dir() / DATASET_FILE
 
 
+# Centraliza o caminho do diretório de tracking local do MLflow.
 def _mlruns_dir() -> Path:
     return _project_root() / "mlruns"
 
 
+# Configura MLflow local e garante experimento ativo.
 def configure_mlflow() -> None:
     tracking_uri = _mlruns_dir().resolve().as_uri()
     _mlruns_dir().mkdir(parents=True, exist_ok=True)
@@ -57,6 +63,7 @@ def configure_mlflow() -> None:
     mlflow.set_experiment(EXPERIMENT_NAME)
 
 
+# Gera dataset sintético com regras de risco para simular diagnóstico cardíaco.
 def _generate_synthetic_dataset(n_samples: int = 1000, random_state: int = RANDOM_STATE) -> pd.DataFrame:
     rng = np.random.default_rng(random_state)
 
@@ -67,6 +74,7 @@ def _generate_synthetic_dataset(n_samples: int = 1000, random_state: int = RANDO
     chol = np.clip(rng.normal(loc=245, scale=45, size=n_samples).round(), 120, 420).astype(int)
     thalach = np.clip(rng.normal(loc=150, scale=20, size=n_samples).round(), 80, 205).astype(int)
 
+    # Combina fatores clínicos em um score contínuo de risco.
     risk_score = (
         0.05 * (age - 50)
         + 0.45 * sex
@@ -92,6 +100,7 @@ def _generate_synthetic_dataset(n_samples: int = 1000, random_state: int = RANDO
     )
 
 
+# Calcula métricas de classificação usadas na auditoria.
 def _compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
     return {
         "accuracy": accuracy_score(y_true, y_pred),
@@ -101,6 +110,7 @@ def _compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
     }
 
 
+# Treina modelo, registra parâmetros/métricas no MLflow e devolve resumo padronizado.
 def _train_log_and_evaluate(
     model_name: str,
     model: Any,
@@ -122,6 +132,7 @@ def _train_log_and_evaluate(
                 "n_features": len(FEATURE_COLUMNS),
             }
         )
+        # Loga hiperparâmetros extras quando o modelo for regressão logística.
         if isinstance(model, LogisticRegression):
             mlflow.log_params(
                 {
@@ -130,6 +141,7 @@ def _train_log_and_evaluate(
                     "penalty": model.penalty,
                 }
             )
+        # Loga estratégia quando o baseline for DummyClassifier.
         if isinstance(model, DummyClassifier):
             mlflow.log_param("strategy", model.strategy)
 
@@ -156,6 +168,7 @@ def _train_log_and_evaluate(
     )
 
 
+# Exibe no terminal um resumo tabular do treinamento concluído.
 def _print_setup_summary(results: list[ModelResult], dataset_path: Path) -> None:
     table = Table(title="Treinamento concluído — Heart Disease Audit", header_style="bold cyan")
     table.add_column("Modelo", style="white")
@@ -186,6 +199,7 @@ def _print_setup_summary(results: list[ModelResult], dataset_path: Path) -> None
     )
 
 
+# Pipeline principal: gera dados, treina baseline/challenger e registra tudo no MLflow.
 def setup_pipeline() -> dict[str, Any]:
     configure_mlflow()
     _data_dir().mkdir(parents=True, exist_ok=True)
@@ -221,6 +235,7 @@ def setup_pipeline() -> dict[str, Any]:
     }
 
 
+# Busca a run mais recente no MLflow para o papel de modelo informado.
 def _fetch_latest_run_for_role(role: str) -> pd.Series:
     configure_mlflow()
     experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
@@ -239,6 +254,7 @@ def _fetch_latest_run_for_role(role: str) -> pd.Series:
     return runs.iloc[0]
 
 
+# Compara baseline vs challenger priorizando recall para decisão clínica.
 def compare_models() -> dict[str, Any]:
     baseline = _fetch_latest_run_for_role("baseline")
     challenger = _fetch_latest_run_for_role("challenger")
@@ -255,6 +271,7 @@ def compare_models() -> dict[str, Any]:
     table.add_column("Accuracy", justify="right")
     table.add_column("Precision", justify="right")
 
+    # Destaca visualmente o modelo vencedor na tabela.
     def style_row(model_name: str, is_best: bool) -> str:
         if is_best:
             return f"[bold green]{model_name}[/bold green]"
@@ -277,6 +294,7 @@ def compare_models() -> dict[str, Any]:
 
     console.print(table)
 
+    # Emite alerta quando a diferença de recall é pequena para decisão robusta.
     if recall_diff < 0.05:
         console.print(
             Panel.fit(

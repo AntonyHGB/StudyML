@@ -19,35 +19,36 @@ RANDOM_STATE = 42
 
 console = Console()
 
-
+# Resolve a raiz do projeto para montar caminhos relativos.
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
-
+# Retorna o caminho do dataset de referência salvo no setup.
 def _dataset_path() -> Path:
     return _project_root() / "data" / DATASET_FILE
 
-
+# Carrega o dataset base usado como distribuição de referência para drift.
 def _load_reference_dataset() -> pd.DataFrame:
     path = _dataset_path()
     if not path.exists():
         raise RuntimeError("Dataset não encontrado. Execute 'python cli.py setup' primeiro.")
     return pd.read_csv(path)
 
-
+# Simula lote de produção com alteração intencional em idade para provocar drift.
 def _simulate_production_batch(reference_df: pd.DataFrame, random_state: int = RANDOM_STATE) -> pd.DataFrame:
     rng = np.random.default_rng(random_state)
     prod = reference_df.sample(n=len(reference_df), replace=True, random_state=random_state).reset_index(drop=True).copy()
     prod["age"] = np.clip((prod["age"] + 10 + rng.normal(0, 1.5, size=len(prod))).round(), 18, 95).astype(int)
     return prod
 
-
+# Executa KS test por feature comparando referência vs produção e gera veredicto.
 def run_drift_analysis() -> dict[str, Any]:
     reference = _load_reference_dataset()
     production = _simulate_production_batch(reference)
 
     results: list[dict[str, Any]] = []
 
+    # Exibe barra de progresso enquanto testa cada feature.
     with Progress(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold white]{task.description}"),
@@ -93,6 +94,7 @@ def run_drift_analysis() -> dict[str, Any]:
 
     console.print(table)
 
+    # Veredicto final baseado em pelo menos uma feature com p-value abaixo do threshold.
     if drifted_features:
         console.print(
             Panel.fit(

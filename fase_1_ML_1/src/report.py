@@ -14,12 +14,15 @@ from src.fairness import run_fairness_analysis
 
 console = Console()
 
+# Resolve a raiz do projeto para gerar o relatório no local correto.
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
+# Define o caminho do arquivo final REPORT.md.
 def _report_path() -> Path:
     return _project_root() / "REPORT.md"
 
+# Busca no MLflow as métricas mais recentes para o papel informado (baseline/challenger).
 def _get_latest_metrics(model_role: str) -> dict[str, Any]:
     configure_mlflow()
     experiment = mlflow.get_experiment_by_name(EXPERIMENT_NAME)
@@ -44,6 +47,7 @@ def _get_latest_metrics(model_role: str) -> dict[str, Any]:
         "precision": float(row["metrics.precision"]),
     }
 
+# Monta a tabela Markdown de métricas para inserir no relatório.
 def _markdown_metrics_table(baseline: dict[str, Any], challenger: dict[str, Any]) -> str:
     return (
         "| Modelo | Accuracy | F1 | Recall | Precision | Run ID |\n"
@@ -52,6 +56,7 @@ def _markdown_metrics_table(baseline: dict[str, Any], challenger: dict[str, Any]
         f"| challenger | {challenger['accuracy']:.4f} | {challenger['f1']:.4f} | {challenger['recall']:.4f} | {challenger['precision']:.4f} | `{challenger['run_id']}` |\n"
     )
 
+# Orquestra geração do REPORT.md com métricas, drift, fairness e veredicto final.
 def generate_report() -> dict[str, Any]:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -61,8 +66,10 @@ def generate_report() -> dict[str, Any]:
     drift_result = run_drift_analysis()
     fairness_result = run_fairness_analysis()
 
+    # Escolhe melhor modelo com base em recall por prioridade clínica.
     better_model = "challenger" if challenger["recall"] >= baseline["recall"] else "baseline"
 
+    # Aprova somente se não houver drift e o gate de fairness estiver aprovado.
     approved = (not drift_result["drift_detected"]) and (not fairness_result["gate_failed"])
     final_verdict = "✅ APROVADO para Staging" if approved else "❌ REPROVADO — ver alertas"
 
@@ -99,6 +106,7 @@ def generate_report() -> dict[str, Any]:
     report_path = _report_path()
     report_path.write_text(report_md, encoding="utf-8")
 
+    # Exibe no terminal o caminho do relatório e o status final da auditoria.
     console.print(
         Panel.fit(
             f"[bold green]REPORT gerado:[/bold green] {report_path}\n"
